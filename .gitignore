@@ -1,0 +1,28 @@
+# Build artifacts
+obj/
+*.o
+trie_benchmark
+robotarm
+
+# Compiled files
+*.out
+*.exe
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Data files
+dictionary.txt
+*.txt
+*.csv
+*.dat
+
+# Logs
+*.log
