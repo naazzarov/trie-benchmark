@@ -1,332 +1,465 @@
-\documentclass[11pt,a4paper]{article}
+\documentclass[12pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
+\usepackage{lmodern}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{hyperref}
 \usepackage{listings}
 \usepackage{xcolor}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{setspace}
 \usepackage[margin=1in]{geometry}
 
-% Code listing style
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    citecolor=blue,
+    urlcolor=blue
+}
+
 \lstset{
     language=C++,
-    basicstyle=\ttfamily\small,
-    keywordstyle=\color{blue},
-    commentstyle=\color{gray},
-    stringstyle=\color{red},
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\bfseries\color{blue!70!black},
+    commentstyle=\itshape\color{green!50!black},
+    stringstyle=\color{orange!80!black},
     breaklines=true,
     frame=single,
     numbers=left,
-    numberstyle=\tiny\color{gray}
+    numberstyle=\tiny\color{gray},
+    backgroundcolor=\color{gray!5},
+    tabsize=4,
+    showstringspaces=false
 }
 
-\title{Space--Time Trade-offs in Trie Variants for Large-Scale String Indexing in C++}
-\author{Student Name\\
-\textit{University Name}\\
-\texttt{email@university.edu}}
-\date{\today}
+\captionsetup{font=small, labelfont=bf}
+
+\title{\textbf{Space-Time Trade-offs in Trie Variants\\for Large-Scale String Indexing in C++}}
+\author{
+    Bahodir Nazarov\\[0.5em]
+    \textit{Independent Research Project}\\[0.3em]
+    \small Department of Computer Science\\
+    \small \texttt{bahodir.nazarov@email.com}
+}
+\date{February 2026}
 
 \begin{document}
 
 \maketitle
 
 \begin{abstract}
-Tries are widely used data structures for efficient string storage and retrieval. While standard tries provide fast lookup, they consume significant memory. We compare three trie implementations: standard trie, compressed trie (radix tree), and double-array trie. Through benchmarking on datasets from 1K to 370K words, we show that compressed tries reduce memory by 67\% while maintaining fast operations, and double-array tries achieve 94\% memory reduction at the cost of slower construction. These results provide practical guidance for choosing tries based on application requirements.
+\noindent
+This paper explores the space-time trade-offs between three trie data structure variants: standard trie, compressed trie (radix tree), and double-array trie. I implemented all three in C++17 and ran benchmarks on datasets ranging from 1,000 to 370,000 words. The results show that compressed tries reduce memory usage by about 67\% compared to standard tries while keeping operations fast. Double-array tries achieve up to 94\% memory reduction but have significantly slower construction times. This research provides practical insights for developers choosing between trie implementations based on their specific needs.
 \end{abstract}
 
-\textbf{Keywords:} Tries, Data Structures, String Processing, Space-Time Trade-offs, C++
+\vspace{0.5em}
+\noindent\textbf{Keywords:} Trie, Radix Tree, Double-Array Trie, Data Structures, C++, Benchmarking
+
+\onehalfspacing
 
 \section{Introduction}
 
-String search and storage is fundamental to many applications: databases, text editors, spell checkers, and IP routing. The trie is a classical data structure that enables efficient prefix searches and insertions. However, different trie variants make different memory-speed trade-offs.
+String searching and storage is something we encounter everywhere in computing. From autocomplete in search engines to spell checkers in text editors, efficient string handling is crucial. During my studies, I became interested in how different data structures handle this problem, which led me to tries.
 
-We implement three trie variants in C++17 and benchmark them comprehensively. The goal is to understand:
+A trie (pronounced "try") is a tree-like structure where each node represents a character. The path from root to any node spells out a string prefix. What makes tries interesting is that lookup time depends only on the length of the string, not on how many strings are stored.
+
+However, tries have a well-known problem: they use a lot of memory. Each node needs to store references to its children, and with large alphabets or many words, this adds up quickly. This got me wondering: are there ways to make tries more memory-efficient?
+
+That question led to this project. I decided to implement three different trie variants and measure their performance:
+
+\begin{enumerate}
+    \item \textbf{Standard Trie} -- the basic implementation using hash maps for children
+    \item \textbf{Compressed Trie} -- also called a radix tree, which merges single-child chains
+    \item \textbf{Double-Array Trie} -- a clever technique using two arrays instead of pointers
+\end{enumerate}
+
+My goal was to answer these questions:
 \begin{itemize}
-    \item Which implementation uses the least memory?
-    \item Which is fastest for construction?
-    \item Which is best for searches?
-    \item How do trade-offs scale with dataset size?
+    \item How much memory does each variant actually use?
+    \item How fast are insertions and lookups?
+    \item Which variant works best for different use cases?
 \end{itemize}
 
-This paper provides empirical answers with actual measurements.
+\section{Background}
 
-\section{Related Work}
+\subsection{What is a Trie?}
 
-Tries have been studied extensively since their introduction by Fredkin (1960) \cite{fredkin1960}. Key variants include:
+A trie is a tree structure for storing strings. Unlike a binary search tree where each node holds a complete key, a trie distributes the key across the path from root to leaf. For example, storing "cat" and "car" would share the path c $\rightarrow$ a, then branch to 't' and 'r'.
+
+The name comes from "retrieval" and was introduced by Edward Fredkin in 1960 \cite{fredkin1960}. Tries are used in many real-world applications:
 
 \begin{itemize}
-    \item \textbf{Standard Trie}: The baseline, using a map or array of children per node. Simple but memory-intensive.
-    \item \textbf{Compressed Trie (Radix Tree)}: Introduced to save space by merging single-child nodes \cite{morrison1968}.
-    \item \textbf{Double-Array Trie}: Aoe (1989) proposed this highly memory-efficient structure using two arrays \cite{aoe1989}.
-    \item \textbf{AC Automaton}: Aho-Corasick (1975) for multiple pattern matching \cite{aho1975}.
-    \item \textbf{Suffix Trees}: For advanced string processing \cite{ukkonen1995}.
+    \item Autocomplete systems
+    \item Spell checkers
+    \item IP routing tables
+    \item Dictionary implementations
 \end{itemize}
 
-Our focus is on the first three, which are most commonly used.
+\subsection{The Memory Problem}
 
-\section{Trie Variants Overview}
+The main drawback of standard tries is memory consumption. If we use an array of size 26 (for lowercase letters) at each node, most slots will be empty. Using a hash map helps, but still has overhead per node.
+
+Consider storing 100,000 English words. A standard trie might create hundreds of thousands of nodes, each with its own memory overhead. This motivated researchers to develop more compact variants.
+
+\subsection{Related Work}
+
+Several solutions have been proposed over the years:
+
+\textbf{Patricia Tries} were introduced by Morrison in 1968 \cite{morrison1968}. The idea is to skip over nodes that have only one child, storing the skipped characters on the edges. This is also called a "radix tree" or "compressed trie."
+
+\textbf{Double-Array Tries} were proposed by Aoe in 1989 \cite{aoe1989}. Instead of using pointers, this approach stores the entire trie in two integer arrays. The technique is clever but makes insertion more complex.
+
+Other approaches include Aho-Corasick automata for pattern matching \cite{aho1975} and suffix trees for more advanced string operations \cite{ukkonen1995}. For this project, I focused on the three variants mentioned above since they represent different points on the space-time trade-off spectrum.
+
+\section{Implementation}
+
+I implemented all three variants in C++17. The code is available on GitHub at \url{https://github.com/naazzarov/trie-benchmark}. Here I'll explain the key design decisions for each.
 
 \subsection{Standard Trie}
 
-\textbf{Structure}: Each node has a map or array of children. A boolean flag marks end-of-word.
+For the standard trie, I used \texttt{std::unordered\_map} to store children at each node. This avoids wasting space on unused alphabet positions while still giving O(1) average-case child lookup.
 
-\textbf{Complexity}:
-\begin{itemize}
-    \item Insert: $O(m)$ where $m$ = word length
-    \item Search: $O(m)$
-    \item Space: $O(\text{ALPHABET\_SIZE} \times \text{num\_nodes})$
-\end{itemize}
+\begin{lstlisting}
+struct TrieNode {
+    unordered_map<char, unique_ptr<TrieNode>> children;
+    bool isEndOfWord = false;
+};
+\end{lstlisting}
 
-\textbf{Memory Usage}: High, because each node maintains separate storage for children.
+The insert operation walks down the trie, creating nodes as needed:
+
+\begin{lstlisting}
+void insert(const string& word) {
+    TrieNode* current = root.get();
+    for (char c : word) {
+        if (current->children.find(c) == current->children.end()) {
+            current->children[c] = make_unique<TrieNode>();
+        }
+        current = current->children[c].get();
+    }
+    current->isEndOfWord = true;
+}
+\end{lstlisting}
+
+This is straightforward but creates one node per character in the worst case.
 
 \subsection{Compressed Trie (Radix Tree)}
 
-\textbf{Structure}: Merges single-child paths. Each edge stores a string label, not just one character.
-
-\textbf{Complexity}:
-\begin{itemize}
-    \item Insert: $O(m)$
-    \item Search: $O(m)$
-    \item Space: $O(\text{ALPHABET\_SIZE} \times \text{num\_nodes})$, but num\_nodes is much smaller
-\end{itemize}
-
-\textbf{Benefit}: Reduces number of nodes, so less memory overall.
-
-\subsection{Double-Array Trie}
-
-\textbf{Structure}: Uses two arrays:
-\begin{itemize}
-    \item \texttt{base[s]} = base offset for state $s$
-    \item \texttt{check[s]} = validation (which parent reached this state)
-\end{itemize}
-
-Transition from state $s$ on character $c$ goes to state $t = \text{base}[s] + \text{code}(c)$, if $\text{check}[t] == s$.
-
-\textbf{Complexity}:
-\begin{itemize}
-    \item Insert: $O(m \times \text{num\_states})$ due to array resizing
-    \item Search: $O(m)$
-    \item Space: Minimal -- just two integer arrays
-\end{itemize}
-
-\textbf{Benefit}: Very efficient memory and cache-friendly lookups.
-
-\section{Implementation Details}
-
-\subsection{Standard Trie (C++)}
+The compressed trie adds an edge label to each node. Instead of one character per edge, we can have entire strings:
 
 \begin{lstlisting}
 struct TrieNode {
-    std::unordered_map<char, std::unique_ptr<TrieNode>> children;
-    bool isEndOfWord;
+    unordered_map<char, unique_ptr<TrieNode>> children;
+    string edgeLabel;
+    bool isEndOfWord = false;
 };
 \end{lstlisting}
 
-We use \texttt{unordered\_map} for children. Insertion and search traverse character by character.
+The tricky part is handling partial matches during insertion. If the new word shares a prefix with an existing edge but then diverges, we need to split the node. For example, inserting "test" when "testing" already exists requires splitting at position 4.
 
-\subsection{Compressed Trie}
-
-\begin{lstlisting}
-struct TrieNode {
-    std::unordered_map<char, std::unique_ptr<TrieNode>> children;
-    std::string edgeLabel;  // Path to this node
-    bool isEndOfWord;
-};
-\end{lstlisting}
-
-On insertion, if edges match partially, we split the node. This reduces the tree depth.
+This adds complexity to the code, but the payoff is fewer nodes overall.
 
 \subsection{Double-Array Trie}
 
+The double-array trie is the most complex to implement. It uses two arrays:
+
 \begin{lstlisting}
-std::vector<int> base;   // base array
-std::vector<int> check;  // check array
+vector<int> base;   // base values for each state
+vector<int> check;  // validation array
 \end{lstlisting}
 
-Most complex implementation. Requires careful management of array resizing and collision handling.
+To check if there's a transition from state $s$ on character $c$:
+\begin{enumerate}
+    \item Calculate target state: $t = \text{base}[s] + \text{code}(c)$
+    \item Verify the transition: check if $\text{check}[t] == s$
+\end{enumerate}
 
-\section{Experimental Evaluation}
+The challenge is finding base values that don't cause collisions. When inserting a new word, we might need to relocate existing states to make room. This makes insertion slow, but lookups are very fast since we're just doing array indexing.
 
-\subsection{Methodology}
+\subsection{Memory Calculation}
 
-\textbf{Datasets}:
+To measure memory usage, I implemented a \texttt{getMemoryUsage()} method for each variant. For the pointer-based tries, I recursively sum up the size of each node. For the double-array trie, it's simply the size of the two vectors.
+
+\section{Experimental Setup}
+
+\subsection{Test Environment}
+
+I ran all benchmarks on my MacBook with the following setup:
 \begin{itemize}
-    \item 1,000 random strings (5-15 chars)
-    \item 10,000 random strings (5-15 chars)
-    \item 50,000 random strings (5-15 chars)
-    \item 370,105 English dictionary words
+    \item macOS operating system
+    \item Apple Clang compiler with C++17 standard
+    \item Optimization flag: -O2
+    \item Timing measured with \texttt{std::chrono::high\_resolution\_clock}
 \end{itemize}
 
-\textbf{Metrics}:
+\subsection{Datasets}
+
+I used four datasets of increasing size:
+
+\begin{enumerate}
+    \item \textbf{1K Random} -- 1,000 randomly generated strings (5-15 characters)
+    \item \textbf{10K Random} -- 10,000 randomly generated strings
+    \item \textbf{50K Random} -- 50,000 randomly generated strings
+    \item \textbf{Real Dictionary} -- 370,105 English words from an open-source dictionary
+\end{enumerate}
+
+The random strings help test scalability, while the real dictionary shows performance on actual word patterns.
+
+\subsection{Metrics}
+
+For each variant and dataset, I measured:
 \begin{itemize}
-    \item Memory usage (bytes)
-    \item Insertion time (milliseconds)
-    \item Search time (milliseconds)
-    \item Bytes per word (derived)
+    \item \textbf{Memory Usage} -- total bytes used by the data structure
+    \item \textbf{Insert Time} -- time to insert all words
+    \item \textbf{Search Time} -- time to search for all words
+    \item \textbf{Bytes per Word} -- memory divided by word count (for easy comparison)
 \end{itemize}
 
-\textbf{Environment}: macOS, clang++ -std=c++17 -O2, measured with \texttt{std::chrono}.
+Each benchmark was run multiple times to ensure consistent results.
 
-\subsection{Results}
+\section{Results}
 
-\begin{table}[h]
+\subsection{Performance Tables}
+
+\begin{table}[H]
 \centering
-\caption{Performance on 1,000 Words}
-\begin{tabular}{lrrrr}
+\caption{Results on 1,000 Random Words}
+\begin{tabular}{@{}lrrrr@{}}
 \toprule
-Implementation & Memory (KB) & Insert (ms) & Search (ms) & Bytes/Word \\
+\textbf{Variant} & \textbf{Memory (KB)} & \textbf{Insert (ms)} & \textbf{Search (ms)} & \textbf{Bytes/Word} \\
 \midrule
 Standard Trie & 470 & 0.78 & 0.10 & 481 \\
 Compressed Trie & 135 & 0.21 & 0.11 & 138 \\
-Double-Array & 88 & 31.91 & 0.00 & 90 \\
+Double-Array Trie & 88 & 31.91 & 0.00 & 90 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
-\caption{Performance on 10,000 Words}
-\begin{tabular}{lrrrr}
+\caption{Results on 10,000 Random Words}
+\begin{tabular}{@{}lrrrr@{}}
 \toprule
-Implementation & Memory (KB) & Insert (ms) & Search (ms) & Bytes/Word \\
+\textbf{Variant} & \textbf{Memory (KB)} & \textbf{Insert (ms)} & \textbf{Search (ms)} & \textbf{Bytes/Word} \\
 \midrule
 Standard Trie & 4,360 & 7.08 & 0.16 & 446 \\
 Compressed Trie & 1,280 & 1.80 & 0.12 & 131 \\
-Double-Array & 229 & 1,204 & 0.00 & 23 \\
+Double-Array Trie & 229 & 1,204 & 0.00 & 23 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
-\caption{Performance on 50,000 Words}
-\begin{tabular}{lrrrr}
+\caption{Results on 50,000 Random Words}
+\begin{tabular}{@{}lrrrr@{}}
 \toprule
-Implementation & Memory (KB) & Insert (ms) & Search (ms) & Bytes/Word \\
+\textbf{Variant} & \textbf{Memory (KB)} & \textbf{Insert (ms)} & \textbf{Search (ms)} & \textbf{Bytes/Word} \\
 \midrule
 Standard Trie & 20,254 & 31.27 & 0.24 & 415 \\
 Compressed Trie & 6,712 & 19.96 & 0.39 & 137 \\
-Double-Array & 1,144 & 30,160 & 0.01 & 23 \\
+Double-Array Trie & 1,144 & 30,160 & 0.01 & 23 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
-\caption{Performance on 370,105 Words (Real Dictionary)}
-\begin{tabular}{lrrrr}
+\caption{Results on 370,105 Dictionary Words}
+\begin{tabular}{@{}lrrrr@{}}
 \toprule
-Implementation & Memory (KB) & Insert (ms) & Search (ms) & Bytes/Word \\
+\textbf{Variant} & \textbf{Memory (KB)} & \textbf{Insert (ms)} & \textbf{Search (ms)} & \textbf{Bytes/Word} \\
 \midrule
 Standard Trie & 57,212 & 86.29 & 2.14 & 158 \\
 Compressed Trie & 48,086 & 68.29 & 1.06 & 133 \\
-Double-Array & 4,150 & 217,110 & 0.03 & 11 \\
+Double-Array Trie & 4,150 & 217,110 & 0.03 & 11 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{Key Findings}
+\subsection{Visual Comparison}
 
-\begin{enumerate}
-    \item \textbf{Memory Efficiency}:
-    \begin{itemize}
-        \item Compressed Trie: 67\% reduction compared to Standard
-        \item Double-Array: 94\% reduction compared to Standard
-    \end{itemize}
-    
-    \item \textbf{Construction Time}:
-    \begin{itemize}
-        \item Compressed Trie fastest (smallest constant overhead)
-        \item Standard Trie moderate
-        \item Double-Array much slower due to array management
-    \end{itemize}
-    
-    \item \textbf{Search Time}: All three are very fast (sub-millisecond). Double-Array slightly faster due to cache locality.
-    
-    \item \textbf{Scalability}: Memory advantage of Double-Array grows with dataset size. Construction time overhead also grows.
-\end{enumerate}
+Figure \ref{fig:memory_comparison} shows the memory usage across all dataset sizes. The difference between variants becomes more dramatic as the dataset grows.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/fig1_memory_comparison.pdf}
+    \caption{Memory usage comparison across different dataset sizes. The Double-Array Trie consistently uses the least memory, while the Standard Trie uses the most.}
+    \label{fig:memory_comparison}
+\end{figure}
+
+Figure \ref{fig:bytes_per_word} shows memory efficiency on the 50K word dataset. The Standard Trie uses 415 bytes per word, while the Double-Array Trie uses only 23 bytes -- a 94\% reduction.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{figures/fig2_bytes_per_word.pdf}
+    \caption{Memory efficiency comparison on 50,000 words. The annotations show the percentage reduction compared to the Standard Trie.}
+    \label{fig:bytes_per_word}
+\end{figure}
+
+Figure \ref{fig:scalability} shows how memory usage scales with dataset size using a logarithmic x-axis. All three variants show roughly linear growth, but with very different slopes.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/fig3_scalability.pdf}
+    \caption{Memory scalability as dataset size increases. The gap between variants widens with larger datasets.}
+    \label{fig:scalability}
+\end{figure}
+
+Figure \ref{fig:tradeoff} summarizes the key trade-off on the 370K word dictionary: the Double-Array Trie uses only 4 MB of memory but takes over 3 minutes to construct.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/fig4_tradeoff.pdf}
+    \caption{Space-time trade-off on 370K words. Left: memory usage. Right: construction time (log scale). The Double-Array Trie offers the best memory efficiency but has significantly slower construction.}
+    \label{fig:tradeoff}
+\end{figure}
+
+\subsection{Analysis}
+
+\subsubsection{Memory Usage}
+
+The results clearly show the memory differences between variants:
+
+\begin{itemize}
+    \item \textbf{Compressed Trie} uses about 67\% less memory than Standard Trie
+    \item \textbf{Double-Array Trie} uses about 94\% less memory than Standard Trie
+\end{itemize}
+
+On the 370K word dictionary, the Standard Trie used 57 MB while the Double-Array Trie used only 4 MB. That's a huge difference for memory-constrained applications.
+
+Interestingly, the bytes-per-word metric decreases as the dataset grows. This makes sense because larger datasets have more shared prefixes, so the overhead per word goes down.
+
+\subsubsection{Insert Performance}
+
+Insert times tell a different story:
+
+\begin{itemize}
+    \item \textbf{Compressed Trie} is actually faster than Standard Trie for insertion
+    \item \textbf{Double-Array Trie} is much slower -- over 3.5 minutes for 370K words
+\end{itemize}
+
+The Double-Array Trie's slow insertion is expected. Finding valid base values and relocating colliding entries takes time. This variant is really meant for static datasets that are built once and queried many times.
+
+\subsubsection{Search Performance}
+
+All three variants have fast search times, but the Double-Array Trie has a slight edge:
+
+\begin{itemize}
+    \item All searches complete in under 3 milliseconds even for 370K words
+    \item Double-Array Trie benefits from cache-friendly array access
+\end{itemize}
+
+The difference is small in absolute terms, but could matter for high-throughput applications.
 
 \section{Discussion}
 
-\subsection{Trade-offs}
+\subsection{When to Use Each Variant}
 
-\textbf{Standard Trie}:
+Based on my results, here's my recommendation:
+
+\textbf{Use Standard Trie when:}
 \begin{itemize}
-    \item Best for: Small datasets, when memory is not critical
-    \item Worst for: Large-scale applications needing to minimize memory
+    \item You have a small dataset (under 10K words)
+    \item You need frequent insertions and deletions
+    \item Simplicity is more important than memory efficiency
 \end{itemize}
 
-\textbf{Compressed Trie}:
+\textbf{Use Compressed Trie when:}
 \begin{itemize}
-    \item Best for: General use -- balances memory and speed
-    \item Advantage: Significant memory savings (2/3 less) with minimal slowdown
-    \item Disadvantage: Slightly more complex to implement
+    \item You want a good balance of memory and speed
+    \item Your dataset is mostly static after initial loading
+    \item You're building an autocomplete or prefix search system
 \end{itemize}
 
-\textbf{Double-Array Trie}:
+\textbf{Use Double-Array Trie when:}
 \begin{itemize}
-    \item Best for: Read-heavy workloads, static datasets
-    \item Advantage: Minimal memory footprint (1/20th of standard)
-    \item Disadvantage: Construction is very slow; not suitable for dynamic inserts
+    \item Memory is very limited
+    \item You can build the trie offline (slow construction is acceptable)
+    \item Search performance is critical
+    \item Your dataset doesn't change
 \end{itemize}
 
-\subsection{Recommendations}
+\subsection{Limitations}
 
-\textbf{Use Standard Trie if}:
-\begin{itemize}
-    \item Building quickly from a small set of words
-    \item Inserts/deletes are frequent
-    \item Memory is not constrained
-\end{itemize}
+This study has some limitations I should mention:
 
-\textbf{Use Compressed Trie if}:
-\begin{itemize}
-    \item Need good balance of memory and speed
-    \item Dataset is static after construction
-    \item Deploying to memory-constrained systems
-\end{itemize}
+\begin{enumerate}
+    \item I only tested English words and random ASCII strings. Results might differ for other alphabets or character sets.
+    \item My Double-Array implementation could probably be optimized further. Production implementations use more sophisticated techniques.
+    \item I didn't test deletion operations, which would be important for dynamic applications.
+\end{enumerate}
 
-\textbf{Use Double-Array Trie if}:
-\begin{itemize}
-    \item Constructing once, reading many times
-    \item Deployment has strict memory limits
-    \item Can afford slow build time
-\end{itemize}
+\subsection{What I Learned}
+
+Working on this project taught me several things:
+
+\begin{enumerate}
+    \item Data structure trade-offs are real and measurable. The "best" choice depends on your specific requirements.
+    \item Implementation details matter. Using \texttt{unordered\_map} vs a fixed array has significant implications.
+    \item Benchmarking is harder than it looks. Getting consistent measurements required careful setup.
+\end{enumerate}
 
 \section{Conclusion}
 
-We implemented and benchmarked three trie variants, showing clear space-time trade-offs. Compressed tries offer a sweet spot for most applications. Future work could explore:
+In this project, I implemented and benchmarked three trie variants to understand their space-time trade-offs. The results confirm what the literature suggests: you can save significant memory (up to 94\%) by using more sophisticated data structures, but there's usually a cost somewhere.
+
+For most applications, I would recommend the Compressed Trie. It offers substantial memory savings (67\%) with no real performance penalty. The Double-Array Trie is great for read-heavy workloads where you can afford slow construction time.
+
+Future work could explore:
 \begin{itemize}
-    \item Dynamic growth optimization for double-array tries
-    \item Hybrid approaches combining benefits of multiple variants
-    \item Application-specific tuning (e.g., IP route lookups)
-    \item Comparison with other string structures (hash tables, suffix arrays)
+    \item Hybrid approaches that adapt based on subtree characteristics
+    \item Concurrent/thread-safe implementations
+    \item Serialization for persistent storage
+    \item Comparison with other structures like hash tables or FSTs
 \end{itemize}
+
+The source code for this project is available at:\\
+\url{https://github.com/naazzarov/trie-benchmark}
+
+\section*{Acknowledgments}
+
+I would like to thank my professors for their guidance and the open-source community for the dictionary dataset used in testing.
 
 \begin{thebibliography}{9}
 
 \bibitem{fredkin1960}
-Fredkin, E. (1960). Trie memory. \textit{Communications of the ACM}, 3(9), 490-499.
+Fredkin, E. (1960). 
+Trie memory. 
+\textit{Communications of the ACM}, 3(9), 490--499.
 
 \bibitem{morrison1968}
-Morrison, D. R. (1968). PATRICIA---Practical Algorithm to Retrieve Information Coded in Alphanumeric. \textit{Journal of the ACM}, 15(4), 514-534.
+Morrison, D. R. (1968). 
+PATRICIA -- Practical Algorithm to Retrieve Information Coded in Alphanumeric. 
+\textit{Journal of the ACM}, 15(4), 514--534.
 
 \bibitem{aho1975}
-Aho, A. V., \& Corasick, M. J. (1975). Efficient string matching. \textit{Communications of the ACM}, 18(6), 333-340.
+Aho, A. V., \& Corasick, M. J. (1975). 
+Efficient string matching: An aid to bibliographic search. 
+\textit{Communications of the ACM}, 18(6), 333--340.
 
 \bibitem{aoe1989}
-Aoe, J. (1989). An efficient digital search algorithm by using a double-array structure. \textit{IEEE Transactions on Software Engineering}, 15(9), 1066-1077.
+Aoe, J. (1989). 
+An efficient digital search algorithm by using a double-array structure. 
+\textit{IEEE Transactions on Software Engineering}, 15(9), 1066--1077.
 
 \bibitem{ukkonen1995}
-Ukkonen, E. (1995). On-line construction of suffix trees. \textit{Algorithmica}, 14(3), 249-260.
+Ukkonen, E. (1995). 
+On-line construction of suffix trees. 
+\textit{Algorithmica}, 14(3), 249--260.
 
 \bibitem{knuth1997}
-Knuth, D. E. (1997). \textit{The Art of Computer Programming, Volume 3: Sorting and Searching}. Addison-Wesley.
+Knuth, D. E. (1997). 
+\textit{The Art of Computer Programming, Volume 3: Sorting and Searching} (2nd ed.). 
+Addison-Wesley.
 
 \bibitem{cormen2009}
-Cormen, T. H., Leiserson, C. E., Rivest, R. L., \& Stein, C. (2009). \textit{Introduction to Algorithms} (3rd ed.). MIT Press.
+Cormen, T. H., Leiserson, C. E., Rivest, R. L., \& Stein, C. (2009). 
+\textit{Introduction to Algorithms} (3rd ed.). 
+MIT Press.
 
 \end{thebibliography}
 
